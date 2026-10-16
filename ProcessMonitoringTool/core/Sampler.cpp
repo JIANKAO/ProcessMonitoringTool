@@ -15,6 +15,7 @@ Sampler::Sampler(QObject* p) : QThread(p) {}
 Sampler::~Sampler() { stop(); }
 
 void Sampler::stop() {
+	NetQuery::stop();
 	m_stop = true;
 	quit();
 	wait(3000);
@@ -44,6 +45,20 @@ void Sampler::run() {
 }
 
 void Sampler::doSample() {
+	// 动态响应网络开关
+	bool wantNet = Settings::inst().networkEnabled();
+	bool hasNet = NetQuery::isRunning();
+	if (wantNet && !hasNet) {
+		if (!NetQuery::start()) {
+			// 启动失败就不要再反复重试，避免刷屏和持续开销
+			static std::atomic_bool warned{ false };
+			if (!warned.exchange(true))
+				qWarning() << "NetQuery start failed; network stats unavailable";
+		}
+	}
+	else if (!wantNet && hasNet) {
+		NetQuery::stop();
+	}
 	if (m_stop) return;
 
 	// 运行时可改间隔
@@ -62,8 +77,11 @@ void Sampler::doSample() {
 	if (div <= 1 || (m_tickCount % div) == 0) GpuQuery::query(m_gpuCache);
 
 	// 网络（默认关闭）
-	QHash<quint32, quint64> netCache;
-	if (Settings::inst().networkEnabled()) NetQuery::query(netCache);
+	QHash<quint32, quint64> netBytes;
+	bool netOk = false;
+	if (Settings::inst().networkEnabled()) {
+		netOk = NetQuery::take(netBytes);  // 取出累积字节，单位 byte
+	}
 
 	QVector<ProcessInfo> procs;
 	procs.reserve(raws.size());
@@ -88,8 +106,13 @@ void Sampler::doSample() {
 
 		auto git = m_gpuCache.find(r.pid);
 		if (git != m_gpuCache.end()) p.gpu = git.value();
-		auto nit = netCache.find(r.pid);
-		if (nit != netCache.end()) p.netBps = nit.value();
+		if (netOk) {
+			auto nit = netBytes.find(r.pid);
+			if (nit != netBytes.end()) {
+				// nit.value() 是自上次 take 以来的总字节数，除以采样间隔得到 B/s
+				p.netBps = (quint64)(double(nit.value()) * 1000.0 / double(dt));
+			}
+		}
 
 		procs.push_back(p);
 	}
