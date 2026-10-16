@@ -1,0 +1,123 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>qml;cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>qrc;rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Form Files">
+      <UniqueIdentifier>{99349809-55BA-4b9d-BF79-8FDBB0286EB3}</UniqueIdentifier>
+      <Extensions>ui</Extensions>
+    </Filter>
+    <Filter Include="Translation Files">
+      <UniqueIdentifier>{639EADAA-A684-42e4-A9AD-28FC9BCB8F7C}</UniqueIdentifier>
+      <Extensions>ts</Extensions>
+    </Filter>
+    <Filter Include="core">
+      <UniqueIdentifier>{7d5374d1-bb2d-4992-bd09-3c92f8ab0cc1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ui">
+      <UniqueIdentifier>{0856e27c-8a6a-4f9d-b360-ed89ea68c180}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <QtRcc Include="ProcessMonitoringTool.qrc">
+      <Filter>Resource Files</Filter>
+    </QtRcc>
+    <QtUic Include="ProcessMonitoringTool.ui">
+      <Filter>Form Files</Filter>
+    </QtUic>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="core\Tr.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="core\Settings.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="core\ProcessQuery.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="core\GpuQuery.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="core\NetQuery.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="core\Sampler.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="core\HistoryStore.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\TrayController.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\HeatmapWidget.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\SettingsDialog.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\StatsWindow.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\MainWindow.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="core\Metrics.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\Tr.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\ProcessQuery.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\GpuQuery.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\NetQuery.h">
+      <Filter>core</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <QtMoc Include="core\Settings.h">
+      <Filter>core</Filter>
+    </QtMoc>
+    <QtMoc Include="core\HistoryStore.h">
+      <Filter>core</Filter>
+    </QtMoc>
+    <QtMoc Include="core\Sampler.h">
+      <Filter>core</Filter>
+    </QtMoc>
+    <QtMoc Include="ui\SettingsDialog.h">
+      <Filter>ui</Filter>
+    </QtMoc>
+    <QtMoc Include="ui\TrayController.h">
+      <Filter>ui</Filter>
+    </QtMoc>
+    <QtMoc Include="ui\StatsWindow.h">
+      <Filter>ui</Filter>
+    </QtMoc>
+    <QtMoc Include="ui\MainWindow.h">
+      <Filter>ui</Filter>
+    </QtMoc>
+    <QtMoc Include="ui\HeatmapWidget.h">
+      <Filter>ui</Filter>
+    </QtMoc>
+  </ItemGroup>
+</Project>
