@@ -29,6 +29,8 @@ MainWindow::MainWindow(QWidget* parent) : QWidget(parent) {
 	move(pos);
 
 	if (Settings::inst().pinned()) setPinned(true);
+
+	setWindowIcon(QApplication::windowIcon());
 }
 
 MainWindow::~MainWindow() = default;

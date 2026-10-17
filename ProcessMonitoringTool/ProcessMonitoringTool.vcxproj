@@ -128,6 +128,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="core\GpuQuery.h" />
+    <ClInclude Include="resource.h" />
     <QtMoc Include="ui\HeatmapWidget.h" />
     <QtMoc Include="ui\MainWindow.h" />
     <QtMoc Include="ui\SettingsDialog.h" />
@@ -140,6 +141,12 @@
     <QtMoc Include="ui\TrayController.h" />
     <QtMoc Include="core\Settings.h" />
     <ClInclude Include="core\Tr.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Resource.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="ui\ico\jk.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

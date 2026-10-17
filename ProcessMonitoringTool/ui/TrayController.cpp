@@ -8,28 +8,12 @@
 #include <QApplication>
 #include <QInputDialog>
 #include <QIcon>
-#include <QPainter>
-#include <QPixmap>
-
-static QIcon makeTrayIcon() {
-	QPixmap pm(32, 32);
-	pm.fill(Qt::transparent);
-	QPainter p(&pm);
-	p.setRenderHint(QPainter::Antialiasing);
-	p.setBrush(QColor(70, 130, 220));
-	p.setPen(Qt::NoPen);
-	p.drawRoundedRect(2, 2, 28, 28, 6, 6);
-	p.setPen(Qt::white);
-	QFont f = p.font(); f.setBold(true); f.setPointSize(12);
-	p.setFont(f);
-	p.drawText(pm.rect(), Qt::AlignCenter, "S");
-	return QIcon(pm);
-}
 
 TrayController::TrayController(MainWindow* win, Sampler* sampler, QObject* parent)
 	: QObject(parent), m_win(win), m_sampler(sampler) {
 
-	m_tray = new QSystemTrayIcon(makeTrayIcon(), this);
+	m_tray = new QSystemTrayIcon(this);
+	m_tray->setIcon(QApplication::windowIcon());   // ← 改这里
 	m_tray->setToolTip(Tr::s("app.title"));
 	m_menu = new QMenu;
 	m_tray->setContextMenu(m_menu);

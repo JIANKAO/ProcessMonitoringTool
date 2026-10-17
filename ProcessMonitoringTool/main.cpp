@@ -17,6 +17,8 @@ int main(int argc, char** argv) {
 	app.setOrganizationName("SysMonitor");
 	app.setQuitOnLastWindowClosed(false);
 
+	app.setWindowIcon(QIcon(":/ico/ui/ico/headImage.png"));
+
 	qRegisterMetaType<RankEntry>("RankEntry");
 	qRegisterMetaType<QVector<RankEntry>>("QVector<RankEntry>");
 	// ---- 单实例 ----

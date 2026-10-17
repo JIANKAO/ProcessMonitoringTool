@@ -1,4 +1,6 @@
 <RCC>
-    <qresource prefix="ProcessMonitoringTool">
+    <qresource prefix="/ProcessMonitoringTool"/>
+    <qresource prefix="/ico">
+        <file>ui/ico/headImage.png</file>
     </qresource>
 </RCC>
