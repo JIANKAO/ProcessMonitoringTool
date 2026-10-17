@@ -19,7 +19,6 @@ StatsWindow::StatsWindow(QWidget* parent) : QWidget(parent) {
 	m_tabs = new QTabBar;
 	for (int i = 0; i < (int)MetricType::Count; ++i) {
 		auto m = (MetricType)i;
-		if (m == MetricType::Network) continue; // 默认关闭网络，若启用再动态加
 		m_tabs->addTab(Tr::s(metricKey(m)));
 	}
 
@@ -79,10 +78,8 @@ void StatsWindow::quickRange(int hours) {
 
 void StatsWindow::reload() {
 	int idx = m_tabs->currentIndex();
-	// 简化映射：跳过 Network
-	static const MetricType order[] = { MetricType::CPU, MetricType::Memory, MetricType::Disk, MetricType::GPU };
-	if (idx < 0 || idx >= 4) return;
-	MetricType m = order[idx];
+	if (idx < 0 || idx >= (int)MetricType::Count) return;
+	MetricType m = (MetricType)idx;
 
 	qint64 from = m_from->dateTime().toMSecsSinceEpoch();
 	qint64 to = m_to->dateTime().toMSecsSinceEpoch();

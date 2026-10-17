@@ -66,9 +66,18 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 
 	// 计算全局最大
 	double maxVal = 0.0;
-	for (const auto& r : m_recs) maxVal = qMax(maxVal, r.value);
+	QVector<double> vals;
+	vals.reserve(m_recs.size());
+	for (const auto& r : m_recs) {
+		vals.push_back(r.value);
+		maxVal = qMax(maxVal, r.value);
+	}
+	std::sort(vals.begin(), vals.end());
+	if (vals.size() > 100) {
+		// 取 99 分位作为色标上限，极端值仍会饱和到最亮色，但不会压垮其他行
+		maxVal = vals[(int)(vals.size() * 0.99)];
+	}
 	if (maxVal <= 0) maxVal = 1.0;
-
 	// 网格值
 	QVector<QVector<double>> grid(rowsCount, QVector<double>(cols, 0.0));
 	qint64 span = m_to - m_from;
