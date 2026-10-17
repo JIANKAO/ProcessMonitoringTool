@@ -58,6 +58,16 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 	filter->setMaximumHeight(90);
 	form->addRow(Tr::s("set.filter"), filter);
 
+	QPlainTextEdit* protectedList = new QPlainTextEdit;
+	protectedList->setPlainText(Settings::inst().protectedList().join('\n'));
+	protectedList->setMaximumHeight(120);
+	form->addRow(Tr::s("set.protected"), protectedList);
+
+	QLabel* protTip = new QLabel(Tr::s("set.protectedTip"));
+	protTip->setWordWrap(true);
+	protTip->setStyleSheet("color: gray; font-size: 11px;");
+	form->addRow(QString(), protTip);
+
 	QSlider* opacity = new QSlider(Qt::Horizontal);
 	opacity->setRange(20, 100);
 	opacity->setValue(qRound(S.opacity() * 100));
@@ -76,8 +86,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 	buttons->button(QDialogButtonBox::Ok)->setText(Tr::s("set.ok"));
 	buttons->button(QDialogButtonBox::Cancel)->setText(Tr::s("set.cancel"));
 
-	connect(buttons, &QDialogButtonBox::accepted, this, [this, lang, interval, topN, retention,
-		gpuMul, netEn, filter, opacity, scale, autostart] {
+	connect(buttons, &QDialogButtonBox::accepted, this, [this, lang, interval, topN, retention, gpuMul, netEn,
+		filter, protectedList, opacity, scale, autostart] {
 			auto& S = Settings::inst();
 			S.setLanguage(lang->currentData().toString());
 			S.setSampleIntervalMs(interval->value() * 1000);
@@ -86,6 +96,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 			S.setGpuDivisor(gpuMul->value());
 			S.setNetworkEnabled(netEn->isChecked());
 			S.setFilterList(filter->toPlainText().split('\n', Qt::SkipEmptyParts));
+			S.setProtectedList(protectedList->toPlainText().split('\n', Qt::SkipEmptyParts));
 			S.setOpacity(opacity->value() / 100.0);
 			S.setScale(scale->value() / 100.0);
 			S.setAutoStart(autostart->isChecked());

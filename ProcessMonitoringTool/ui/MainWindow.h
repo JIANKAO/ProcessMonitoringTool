@@ -46,4 +46,14 @@ private:
 	// 拖动
 	bool m_dragging = false;
 	QPoint m_dragOffset;
+private:
+	// 右键交互
+	int  entryIndexAt(const QPoint& pos) const;
+	void beginFreeze();
+	void endFreeze();
+	bool restartProcess(const RankEntry& e);
+
+	bool m_freezeUpdates = false;
+	QVector<RankEntry> m_pendingEntries[(int)MetricType::Count];
+	bool m_pendingDirty[(int)MetricType::Count] = {};
 };

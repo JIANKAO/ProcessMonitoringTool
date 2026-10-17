@@ -61,3 +61,33 @@ void Settings::setAutoStart(bool v) {
 	}
 	emit changed();
 }
+
+// 默认保护名单：仅在用户从未修改过时生效
+static QStringList defaultProtectedList() {
+    return {
+        QStringLiteral("System"),
+        QStringLiteral("Registry"),
+        QStringLiteral("Memory Compression"),
+        QStringLiteral("csrss.exe"),
+        QStringLiteral("wininit.exe"),
+        QStringLiteral("winlogon.exe"),
+        QStringLiteral("services.exe"),
+        QStringLiteral("lsass.exe"),
+        QStringLiteral("smss.exe"),
+        QStringLiteral("svchost.exe"),
+        QStringLiteral("dwm.exe"),
+        QStringLiteral("fontdrvhost.exe"),
+    };
+}
+
+QStringList Settings::protectedList() const {
+    // 用户没动过 → 用默认；动过（哪怕清空）→ 用用户的值
+    if (!m_qs->contains("protected"))
+        return defaultProtectedList();
+    return m_qs->value("protected").toStringList();
+}
+
+void Settings::setProtectedList(const QStringList& v) {
+    m_qs->setValue("protected", v);
+    emit changed();
+}

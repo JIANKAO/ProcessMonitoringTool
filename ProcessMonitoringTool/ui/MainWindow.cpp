@@ -11,6 +11,30 @@
 #include <QPainterPath>
 #include <windows.h>
 
+#include <QMessageBox>
+#include <QClipboard>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QCoreApplication>
+#include <QFileInfo>
+#include "core/ProcessQuery.h"
+
+namespace {
+	// 按可执行文件路径收集当前所有运行实例的 pid
+	QVector<quint32> collectPidsByPath(const QString& path) {
+		QVector<quint32> pids;
+		if (path.isEmpty()) return pids;
+		QVector<RawProc> raws;
+		if (!ProcessQuery::enumAll(raws)) return pids;
+		for (const auto& r : raws) {
+			if (ProcessQuery::resolvePath(r.pid, r.createTime)
+				.compare(path, Qt::CaseInsensitive) == 0)
+				pids.push_back(r.pid);
+		}
+		return pids;
+	}
+}
+
 MainWindow::MainWindow(QWidget* parent) : QWidget(parent) {
 	setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
 	setAttribute(Qt::WA_TranslucentBackground);
@@ -55,6 +79,119 @@ QRectF MainWindow::tabRect(int i) const {
 	return QRectF(i * w, 0, w, 26 * m_scale);
 }
 
+int MainWindow::entryIndexAt(const QPoint& pos) const {
+	int rowH = qRound(22 * m_scale);
+	int top = qRound(30 * m_scale);
+	if (pos.y() < top) return -1;
+	int idx = (pos.y() - top) / rowH;
+	const auto& list = m_entries[(int)m_metric];
+	if (idx >= 0 && idx < list.size()) return idx;
+	return -1;
+}
+
+void MainWindow::beginFreeze() {
+	m_freezeUpdates = true;
+}
+
+void MainWindow::endFreeze() {
+	m_freezeUpdates = false;
+	for (int i = 0; i < (int)MetricType::Count; ++i) {
+		if (m_pendingDirty[i]) {
+			m_entries[i] = std::move(m_pendingEntries[i]);
+			m_pendingEntries[i].clear();
+			m_pendingDirty[i] = false;
+		}
+	}
+	QSize sz = baseSize();
+	if (size() != sz) resize(sz);
+	update();
+}
+
+bool MainWindow::restartProcess(const RankEntry& e) {
+	// ---- 前置校验 ----
+	if (e.path.isEmpty()) {
+		QMessageBox::warning(this, Tr::s("restart.fail"), Tr::s("restart.noPath"));
+		return false;
+	}
+
+	// ---- 从设置读保护名单（每次实时读，用户改完立刻生效） ----
+	const QStringList protectedList = Settings::inst().protectedList();
+	for (const auto& name : protectedList) {
+		if (!name.isEmpty() && e.name.compare(name, Qt::CaseInsensitive) == 0) {
+			QMessageBox::warning(this, Tr::s("restart.fail"),
+				Tr::s("restart.protected").arg(e.name));
+			return false;
+		}
+	}
+
+	// ---- 自身保护（不可关） ----
+	if (e.path.compare(QCoreApplication::applicationFilePath(),
+		Qt::CaseInsensitive) == 0) {
+		QMessageBox::warning(this, Tr::s("restart.fail"), Tr::s("restart.self"));
+		return false;
+	}
+
+	// ---- 按路径收集所有实例 ----
+	QVector<quint32> pids = collectPidsByPath(e.path);
+	if (pids.isEmpty()) {
+		QMessageBox::warning(
+			this, Tr::s("restart.fail"),
+			Tr::s("restart.alreadyClosed").arg(e.name));
+		return false;
+	}
+
+	// ---- 终止 ----
+	int killed = 0;
+	for (quint32 pid : pids) {
+		HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+		if (!h) continue;
+		if (TerminateProcess(h, 0)) {
+			WaitForSingleObject(h, 3000);
+			++killed;
+		}
+		CloseHandle(h);
+	}
+	if (killed == 0) {
+		QMessageBox::warning(this, Tr::s("restart.fail"),
+			Tr::s("restart.cantKill").arg(e.name));
+		return false;
+	}
+
+	Sleep(500);   // 释放句柄、端口、单实例锁
+
+	// ---- 重新启动 ----
+	std::wstring wpath = e.path.toStdWString();
+	std::wstring wdir = QFileInfo(e.path).absolutePath().toStdWString();
+	std::wstring cmd = L"\"" + wpath + L"\"";
+
+	STARTUPINFOW si = { sizeof(si) };
+	PROCESS_INFORMATION pi = {};
+	BOOL ok = CreateProcessW(
+		wpath.c_str(), cmd.data(),
+		nullptr, nullptr, FALSE, 0, nullptr,
+		wdir.c_str(), &si, &pi);
+
+	if (!ok) {
+		DWORD err = GetLastError();
+		QString detail;
+		LPWSTR buf = nullptr;
+		if (FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+			| FORMAT_MESSAGE_IGNORE_INSERTS,
+			nullptr, err, 0, (LPWSTR)&buf, 0, nullptr) && buf) {
+			detail = QString::fromWCharArray(buf).trimmed();
+			LocalFree(buf);
+		}
+		QMessageBox::warning(this, Tr::s("restart.fail"),
+			Tr::s("restart.spawnFail").arg(e.name)
+			.arg(detail.isEmpty() ? QString::number(err)
+				: QStringLiteral("%1 (%2)").arg(err).arg(detail)));
+		return false;
+	}
+	CloseHandle(pi.hThread);
+	CloseHandle(pi.hProcess);
+	return true;
+}
+
 void MainWindow::setMetric(MetricType m) {
 	m_metric = m;
 	Settings::inst().setActiveMetric((int)m);
@@ -77,6 +214,13 @@ void MainWindow::setPinned(bool on) {
 
 void MainWindow::onRanksReady(int metric, QVector<RankEntry> entries, qint64) {
 	if (metric < 0 || metric >= (int)MetricType::Count) return;
+
+	if (m_freezeUpdates) {
+		m_pendingEntries[metric] = std::move(entries);
+		m_pendingDirty[metric] = true;
+		return;
+	}
+
 	m_entries[metric] = std::move(entries);
 	if (metric == (int)m_metric) {
 		QSize sz = baseSize();
@@ -217,17 +361,82 @@ void MainWindow::mouseReleaseEvent(QMouseEvent*) {
 }
 
 void MainWindow::contextMenuEvent(QContextMenuEvent* e) {
-	if (m_pinned) return; // 钉住时忽略
+	if (m_pinned) return;
+
+	// ---- 捕获目标行（菜单关闭后仍然有效） ----
+	int idx = entryIndexAt(e->pos());
+	RankEntry target;
+	bool hasTarget = false;
+	if (idx >= 0) {
+		const auto& list = m_entries[(int)m_metric];
+		if (idx < list.size()) {
+			target = list[idx];
+			hasTarget = true;
+		}
+	}
+
+	beginFreeze();
 
 	QMenu menu;
-	menu.addAction(Tr::s("menu.stats"), this, &MainWindow::requestStats);
-	menu.addAction(Tr::s("menu.settings"), this, &MainWindow::requestSettings);
+	QAction* actRestart = nullptr;
+	QAction* actLocate = nullptr;
+	QAction* actCopyPath = nullptr;
+
+	if (hasTarget) {
+		QAction* title = menu.addAction(Tr::s("menu.target").arg(target.name));
+		title->setEnabled(false);
+		menu.addSeparator();
+		if (!target.stale && !target.path.isEmpty())
+			actRestart = menu.addAction(Tr::s("menu.restart"));
+		actLocate = menu.addAction(Tr::s("menu.locate"));
+		actCopyPath = menu.addAction(Tr::s("menu.copyPath"));
+		menu.addSeparator();
+	}
+
+	QAction* actStats = menu.addAction(Tr::s("menu.stats"));
+	QAction* actSettings = menu.addAction(Tr::s("menu.settings"));
 	menu.addSeparator();
-	menu.addAction(Tr::s("menu.pin"), this, [this] { setPinned(true); });
-	menu.addAction(Tr::s("menu.hide"), this, &MainWindow::requestHide);
+	QAction* actPin = menu.addAction(Tr::s("menu.pin"));
+	QAction* actHide = menu.addAction(Tr::s("menu.hide"));
 	menu.addSeparator();
-	menu.addAction(Tr::s("menu.quit"), this, &MainWindow::requestQuit);
-	menu.exec(e->globalPos());
+	QAction* actQuit = menu.addAction(Tr::s("menu.quit"));
+
+	QAction* chosen = menu.exec(e->globalPos());
+	endFreeze();
+
+	if (!chosen) return;
+
+	// ---- 分发 ----
+	if (chosen == actStats)          emit requestStats();
+	else if (chosen == actSettings)  emit requestSettings();
+	else if (chosen == actPin)       setPinned(true);
+	else if (chosen == actHide)      emit requestHide();
+	else if (chosen == actQuit)      emit requestQuit();
+	else if (chosen == actCopyPath) {
+		QApplication::clipboard()->setText(target.path);
+	}
+	else if (chosen == actLocate) {
+		if (!target.path.isEmpty())
+			QDesktopServices::openUrl(
+				QUrl::fromLocalFile(QFileInfo(target.path).absolutePath()));
+	}
+	else if (chosen == actRestart) {
+		// 预检：菜单期间进程可能已经退出
+		QVector<quint32> pids = collectPidsByPath(target.path);
+		if (pids.isEmpty()) {
+			QMessageBox::warning(
+				this, Tr::s("restart.fail"),
+				Tr::s("restart.alreadyClosed").arg(target.name));
+			return;
+		}
+
+		auto ret = QMessageBox::question(
+			this, Tr::s("menu.restart"),
+			Tr::s("restart.confirm").arg(target.name),
+			QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+		if (ret == QMessageBox::Yes)
+			restartProcess(target);
+	}
 }
 
 void MainWindow::closeEvent(QCloseEvent* e) {
