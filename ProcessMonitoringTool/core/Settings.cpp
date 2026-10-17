@@ -52,8 +52,7 @@ void Settings::setAutoStart(bool v) {
 		if (v) {
 			QString exe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
 			std::wstring w = exe.toStdWString();
-			RegSetValueExW(k, L"SysMonitor", 0, REG_SZ,
-				(const BYTE*)w.c_str(), (DWORD)((w.size() + 1) * sizeof(wchar_t)));
+			RegSetValueExW(k, L"SysMonitor", 0, REG_SZ, (const BYTE*)w.c_str(), (DWORD)((w.size() + 1) * sizeof(wchar_t)));
 		}
 		else {
 			RegDeleteValueW(k, L"SysMonitor");

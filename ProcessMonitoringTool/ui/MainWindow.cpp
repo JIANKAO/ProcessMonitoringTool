@@ -41,7 +41,7 @@ void MainWindow::applySettings() {
 }
 
 QSize MainWindow::baseSize() const {
-	int rows = qMin(m_entries[(int)m_metric].size(), Settings::inst().topN());
+	int rows = m_entries[(int)m_metric].size();
 	if (rows < 3) rows = 3;
 	int w = qRound(300 * m_scale);
 	int h = qRound((30 + rows * 22 + 12) * m_scale);
@@ -100,9 +100,7 @@ void MainWindow::paintEvent(QPaintEvent*) {
 	f.setPointSizeF(9.5 * m_scale);
 	p.setFont(f);
 
-	static const MetricType kAll[] = { MetricType::CPU, MetricType::Memory,
-									  MetricType::Disk, MetricType::Network,
-									  MetricType::GPU };
+	static const MetricType kAll[] = { MetricType::CPU, MetricType::Memory, MetricType::Disk, MetricType::Network, MetricType::GPU };
 
 	for (int i = 0; i < 5; ++i) {
 		QRectF r = tabRect(i);
@@ -128,28 +126,30 @@ void MainWindow::paintEvent(QPaintEvent*) {
 	int shown = qMin(list.size(), Settings::inst().topN());
 	for (int i = 0; i < shown; ++i) {
 		const auto& e = list[i];
+		const bool stale = e.stale;
 		QRectF r(0, top + i * rowH, width(), rowH);
 
+		// 斑马纹：stale 行用更弱的对比
 		if (i % 2 == 0) {
-			QColor alt(255, 255, 255, 12);
+			QColor alt = stale ? QColor(255, 255, 255, 6) : QColor(255, 255, 255, 12);
 			p.fillRect(r, alt);
 		}
 
 		// 排名
-		p.setPen(QColor(160, 200, 255, 230));
-		p.drawText(QRectF(padX, r.top(), 24 * m_scale, r.height()),
-			Qt::AlignVCenter | Qt::AlignLeft, QString::number(i + 1));
+		p.setPen(stale ? QColor(130, 150, 180, 180) : QColor(160, 200, 255, 230));
+		p.drawText(QRectF(padX, r.top(), 24 * m_scale, r.height()), Qt::AlignVCenter | Qt::AlignLeft, QString::number(i + 1));
 
 		// 名称
 		QString name = e.name;
 		if (name.isEmpty()) name = "?";
-		p.setPen(QColor(240, 240, 240, 255));
+		if (e.procCount > 1)
+			name += QStringLiteral(" (%1)").arg(e.procCount);   // ← 新增
+		p.setPen(stale ? QColor(165, 165, 165, 220) : QColor(240, 240, 240, 255));
 		double nameW = r.width() - 24 * m_scale - 120 * m_scale - padX;
 		QString elided = p.fontMetrics().elidedText(name, Qt::ElideMiddle, qMax(10.0, nameW));
-		p.drawText(QRectF(padX + 24 * m_scale, r.top(), nameW, r.height()),
-			Qt::AlignVCenter | Qt::AlignLeft, elided);
+		p.drawText(QRectF(padX + 24 * m_scale, r.top(), nameW, r.height()), Qt::AlignVCenter | Qt::AlignLeft, elided);
 
-		// 数值
+		// 数值（格式逻辑不变）
 		QString valStr;
 		switch (m_metric) {
 		case MetricType::CPU:
@@ -158,35 +158,31 @@ void MainWindow::paintEvent(QPaintEvent*) {
 			break;
 		case MetricType::Memory: {
 			double mb = e.value / 1024.0 / 1024.0;
-			valStr = mb >= 1024 ? QString::number(mb / 1024, 'f', 2) + " GB"
-				: QString::number(mb, 'f', 0) + " MB";
+			valStr = mb >= 1024 ? QString::number(mb / 1024, 'f', 2) + " GB" : QString::number(mb, 'f', 0) + " MB";
 			break;
 		}
 		case MetricType::Disk:
 		case MetricType::Network: {
 			double kb = e.value / 1024.0;
-			valStr = kb >= 1024 ? QString::number(kb / 1024, 'f', 2) + " MB/s"
-				: QString::number(kb, 'f', 1) + " KB/s";
+			valStr = kb >= 1024 ? QString::number(kb / 1024, 'f', 2) + " MB/s" : QString::number(kb, 'f', 1) + " KB/s";
 			break;
 		}
 		default: break;
 		}
+		p.setPen(stale ? QColor(140, 170, 150, 200) : QColor(120, 230, 170, 255));
+		p.drawText(QRectF(width() - 120 * m_scale, r.top(), 70 * m_scale, r.height()), Qt::AlignVCenter | Qt::AlignRight, valStr);
 
-		p.setPen(QColor(120, 230, 170, 255));
-		p.drawText(QRectF(width() - 120 * m_scale, r.top(), 70 * m_scale, r.height()),
-			Qt::AlignVCenter | Qt::AlignRight, valStr);
-
-		// 持续时长
+		// 持续时长（stale 的时长已在 Sampler 里冻结）
 		qint64 ms = e.durationMs;
 		QString dur;
 		qint64 s = ms / 1000;
 		if (s < 60) dur = QString::number(s) + "s";
 		else if (s < 3600) dur = QString("%1m%2s").arg(s / 60).arg(s % 60);
 		else dur = QString("%1h%2m").arg(s / 3600).arg((s % 3600) / 60);
+		if (stale) dur += " ·";   // 小标记，加在末尾
 
-		p.setPen(QColor(200, 200, 200, 210));
-		p.drawText(QRectF(width() - 50 * m_scale, r.top(), 46 * m_scale, r.height()),
-			Qt::AlignVCenter | Qt::AlignRight, dur);
+		p.setPen(stale ? QColor(150, 150, 150, 180) : QColor(200, 200, 200, 210));
+		p.drawText(QRectF(width() - 50 * m_scale, r.top(), 46 * m_scale, r.height()), Qt::AlignVCenter | Qt::AlignRight, dur);
 	}
 }
 
@@ -194,9 +190,7 @@ void MainWindow::mousePressEvent(QMouseEvent* e) {
 	if (e->button() == Qt::LeftButton) {
 		for (int i = 0; i < 5; ++i) {
 			if (tabRect(i).contains(e->pos())) {
-				static const MetricType kAll[] = { MetricType::CPU, MetricType::Memory,
-												  MetricType::Disk, MetricType::Network,
-												  MetricType::GPU };
+				static const MetricType kAll[] = { MetricType::CPU, MetricType::Memory,	MetricType::Disk, MetricType::Network, MetricType::GPU };
 				setMetric(kAll[i]);
 				return;
 			}

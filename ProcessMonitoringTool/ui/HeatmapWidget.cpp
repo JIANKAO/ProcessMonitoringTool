@@ -56,9 +56,7 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 	int rightMargin = 12;
 	int bottomMargin = 24;
 
-	QRect plot(leftMargin, topMargin,
-		width() - leftMargin - rightMargin,
-		height() - topMargin - bottomMargin);
+	QRect plot(leftMargin, topMargin, width() - leftMargin - rightMargin, height() - topMargin - bottomMargin);
 	if (plot.width() < 10 || plot.height() < 10) return;
 
 	// 3. 分桶
@@ -107,8 +105,7 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 		QString name = QFileInfo(rows[ri].first).fileName();
 		if (name.isEmpty()) name = rows[ri].first;
 		name = p.fontMetrics().elidedText(name, Qt::ElideMiddle, leftMargin - 12);
-		p.drawText(QRect(4, y, leftMargin - 8, rowH),
-			Qt::AlignVCenter | Qt::AlignRight, name);
+		p.drawText(QRect(4, y, leftMargin - 8, rowH), Qt::AlignVCenter | Qt::AlignRight, name);
 	}
 
 	// 5. 时间轴
@@ -119,10 +116,8 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 	int ticks = 6;
 	for (int i = 0; i <= ticks; ++i) {
 		int x = plot.left() + plot.width() * i / ticks;
-		QString label = QDateTime::fromMSecsSinceEpoch(
-			m_from + span * i / ticks).toString("MM-dd HH:mm");
+		QString label = QDateTime::fromMSecsSinceEpoch(m_from + span * i / ticks).toString("MM-dd HH:mm");
 		p.drawLine(x, plot.top(), x, plot.bottom() + 3);
-		p.drawText(QRect(x - 40, plot.bottom() + 4, 80, 18),
-			Qt::AlignCenter, label);
+		p.drawText(QRect(x - 40, plot.bottom() + 4, 80, 18), Qt::AlignCenter, label);
 	}
 }

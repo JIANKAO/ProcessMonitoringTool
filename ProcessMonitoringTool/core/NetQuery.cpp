@@ -76,7 +76,7 @@ namespace NetQuery {
 
 		// 用随机 GUID 作为会话标识（不能用 Provider GUID）
 		GUID sessionGuid = { 0 };
-		CoCreateGuid(&sessionGuid);
+		HRESULT value = CoCreateGuid(&sessionGuid);
 		props->Wnode.Guid = sessionGuid;
 
 		ULONG rc = StartTraceW(&g_session, kSessionName, props);

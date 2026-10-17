@@ -40,9 +40,13 @@ struct ProcessInfo {
 
 struct RankEntry {
     quint32 pid = 0;
+    QString key;
     QString path;
     QString name;
     double  value = 0.0;
     qint64  firstSeenMs = 0;
     qint64  durationMs = 0;
+    bool    stale = false;       // 进程已终止
+    qint64  staleSinceMs = 0;    // 变为 stale 的时刻
+    int     procCount = 1;       // 聚合了几个进程
 };

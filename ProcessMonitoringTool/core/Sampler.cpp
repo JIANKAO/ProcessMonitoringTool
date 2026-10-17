@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <windows.h>
 
+static constexpr qint64 kStaleTtlMs = 30 * 1000;   // stale 条目保留 30 秒
+static constexpr int    kMaxStaleShown = 5;        // 最多显示 5 个 stale
+
 Sampler::Sampler(QObject* p) : QThread(p) {}
 Sampler::~Sampler() { stop(); }
 
@@ -142,67 +145,169 @@ void Sampler::doSample() {
 }
 
 QVector<RankEntry> Sampler::computeRank(MetricType m, const QVector<ProcessInfo>& procs, qint64 now) {
-	auto valueOf = [m](const ProcessInfo& p) -> double {
-		switch (m) {
-		case MetricType::CPU:     return p.cpu;
-		case MetricType::Memory:  return double(p.workingSet);
-		case MetricType::Disk:    return double(p.diskBps);
-		case MetricType::Network: return double(p.netBps);
-		case MetricType::GPU:     return p.gpu;
-		default: return 0;
-		}
-		};
+    auto valueOf = [m](const ProcessInfo& p) -> double {
+        switch (m) {
+        case MetricType::CPU:     return p.cpu;
+        case MetricType::Memory:  return double(p.workingSet);
+        case MetricType::Disk:    return double(p.diskBps);
+        case MetricType::Network: return double(p.netBps);
+        case MetricType::GPU:     return p.gpu;
+        default: return 0;
+        }
+        };
 
-	QStringList filters = Settings::inst().filterList();
-	QVector<const ProcessInfo*> sorted;
-	sorted.reserve(procs.size());
-	for (const auto& p : procs) {
-		bool drop = false;
-		for (const auto& f : filters) {
-			if (!f.isEmpty() && p.name.contains(f, Qt::CaseInsensitive)) { drop = true; break; }
-		}
-		if (drop) continue;
-		sorted.push_back(&p);
-	}
-	std::sort(sorted.begin(), sorted.end(), [&](const ProcessInfo* a, const ProcessInfo* b) {
-		return valueOf(*a) > valueOf(*b);
-		});
+    const QStringList filters = Settings::inst().filterList();
 
-	int n = qMin(Settings::inst().topN(), sorted.size());
-	QVector<RankEntry> out;
-	out.reserve(n);
+    // ---- 第一遍：算 key + 过滤 + 按 key 聚合 ----
+    struct Agg {
+        QString key;
+        QString path;
+        QString name;
+        double  value = 0.0;
+        int     count = 0;
+    };
+    QHash<QString, Agg> aggMap;
+    aggMap.reserve(procs.size() / 2 + 16);
 
-	auto& firstMap = m_firstSeen[(int)m];
-	QSet<quint32> seen;
+    // aliveKeys 用于判断"某程序是否还有活着的进程"——
+    // 注意：被过滤的程序也要进 aliveKeys，否则会误判为"已终止"而 stale 化
+    QSet<QString> aliveKeys;
+    aliveKeys.reserve(procs.size());
 
-	for (int i = 0; i < n; ++i) {
-		const auto* p = sorted[i];
-		double v = valueOf(*p);
-		if (v <= 0.0) continue;
+    for (const auto& p : procs) {
+        const QString path = ProcessQuery::resolvePath(p.pid, p.createTime);
+        const QString key = path.isEmpty()
+            ? (QStringLiteral("pid:") + QString::number(p.pid))
+            : path;
 
-		RankEntry e;
-		e.pid = p->pid;
-		e.path = ProcessQuery::resolvePath(p->pid, p->createTime);
-		e.name = e.path.isEmpty() ? p->name : QFileInfo(e.path).fileName();
-		e.value = v;
+        aliveKeys.insert(key);
 
-		auto it = firstMap.find(p->pid);
-		if (it == firstMap.end()) {
-			firstMap[p->pid] = now;
-			e.firstSeenMs = now;
-		}
-		else {
-			e.firstSeenMs = it.value();
-		}
-		e.durationMs = now - e.firstSeenMs;
-		out.push_back(e);
-		seen.insert(p->pid);
-	}
+        // 过滤（按进程名，大小写不敏感）
+        bool drop = false;
+        for (const auto& f : filters) {
+            if (!f.isEmpty() && p.name.contains(f, Qt::CaseInsensitive)) { drop = true; break; }
+        }
+        if (drop) continue;
 
-	for (auto it = firstMap.begin(); it != firstMap.end(); ) {
-		if (!seen.contains(it.key())) it = firstMap.erase(it);
-		else ++it;
-	}
+        const double v = valueOf(p);
+        if (v <= 0.0) continue;   // 无占用的实例不计入 procCount
 
-	return out;
+        auto it = aggMap.find(key);
+        if (it == aggMap.end()) {
+            Agg a;
+            a.key = key;
+            a.path = path;
+            a.name = path.isEmpty() ? p.name : QFileInfo(path).fileName();
+            a.value = v;
+            a.count = 1;
+            aggMap.insert(key, a);
+        }
+        else {
+            it->value += v;
+            ++it->count;
+        }
+    }
+
+    // ---- 排序 ----
+    QVector<Agg> sorted;
+    sorted.reserve(aggMap.size());
+    for (auto it = aggMap.constBegin(); it != aggMap.constEnd(); ++it)
+        sorted.push_back(it.value());
+
+    std::sort(sorted.begin(), sorted.end(),
+        [](const Agg& a, const Agg& b) { return a.value > b.value; });
+
+    const int n = qMin(Settings::inst().topN(), sorted.size());
+
+    auto& firstMap = m_firstSeen[(int)m];
+    auto& lastMap = m_lastEntry[(int)m];
+    auto& staleMap = m_staleCache[(int)m];
+
+    // ---- 构建本轮活跃榜单 ----
+    QVector<RankEntry> fresh;
+    fresh.reserve(n);
+    QSet<QString> freshKeys;
+    freshKeys.reserve(n);
+
+    for (int i = 0; i < n; ++i) {
+        const Agg& a = sorted[i];
+
+        double v = a.value;
+        // 聚合后 CPU/GPU 理论上限 100%，但采样误差可能略超，clamp 一下
+        if (v > 100.0 && (m == MetricType::CPU || m == MetricType::GPU)) v = 100.0;
+
+        RankEntry e;
+        e.key = a.key;
+        e.path = a.path;
+        e.name = a.name;
+        e.value = v;
+        e.procCount = a.count;
+
+        auto it = firstMap.find(a.key);
+        if (it == firstMap.end()) {
+            firstMap[a.key] = now;
+            e.firstSeenMs = now;
+        }
+        else {
+            e.firstSeenMs = it.value();
+        }
+        e.durationMs = now - e.firstSeenMs;
+
+        fresh.push_back(e);
+        freshKeys.insert(a.key);
+        lastMap[a.key] = e;
+        staleMap.remove(a.key);   // 程序重新上榜，清掉同名 stale 避免重复显示
+    }
+
+    // ---- 处理掉出榜单 / 已终止 ----
+    QStringList toRemove;
+    for (auto it = firstMap.constBegin(); it != firstMap.constEnd(); ++it) {
+        const QString& key = it.key();
+        if (freshKeys.contains(key)) continue;
+
+        if (aliveKeys.contains(key)) {
+            // 程序还有进程活着，只是跌出 Top N —— 重置跟踪，不 stale 化
+            toRemove.push_back(key);
+        }
+        else {
+            // 所有进程都已终止 —— 用上一轮快照冻结成 stale
+            auto lastIt = lastMap.constFind(key);
+            if (lastIt != lastMap.constEnd()) {
+                RankEntry e = lastIt.value();
+                e.stale = true;
+                e.staleSinceMs = now;
+                // value / durationMs 沿用上一轮，不再更新
+                staleMap[key] = e;
+            }
+            toRemove.push_back(key);
+        }
+    }
+    for (const QString& key : toRemove) {
+        firstMap.remove(key);
+        lastMap.remove(key);
+    }
+
+    // ---- 清理过期 stale ----
+    for (auto it = staleMap.begin(); it != staleMap.end(); ) {
+        if (now - it.value().staleSinceMs > kStaleTtlMs)
+            it = staleMap.erase(it);
+        else
+            ++it;
+    }
+
+    // ---- 追加 stale 到结果末尾 ----
+    QVector<RankEntry> staleList;
+    staleList.reserve(staleMap.size());
+    for (auto it = staleMap.constBegin(); it != staleMap.constEnd(); ++it)
+        staleList.push_back(it.value());
+
+    std::sort(staleList.begin(), staleList.end(),
+        [](const RankEntry& a, const RankEntry& b) {
+            return a.staleSinceMs > b.staleSinceMs;
+        });
+    if (staleList.size() > kMaxStaleShown)
+        staleList.resize(kMaxStaleShown);
+
+    fresh += staleList;
+    return fresh;
 }

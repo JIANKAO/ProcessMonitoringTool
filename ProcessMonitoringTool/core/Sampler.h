@@ -33,7 +33,11 @@ private:
 	QTimer* m_timer = nullptr;
 	QHash<quint32, Prev> m_prev;
 	QHash<quint32, double> m_gpuCache;
-	QHash<quint32, qint64> m_firstSeen[(int)MetricType::Count];
+
+	// 以下三张改为按聚合键（path）索引
+	QHash<QString, qint64>    m_firstSeen[(int)MetricType::Count];
+	QHash<QString, RankEntry> m_lastEntry[(int)MetricType::Count];
+	QHash<QString, RankEntry> m_staleCache[(int)MetricType::Count];
 
 	qint64 m_lastTick = 0;
 	int    m_tickCount = 0;

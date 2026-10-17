@@ -80,8 +80,7 @@ void StatsWindow::quickRange(int hours) {
 void StatsWindow::reload() {
 	int idx = m_tabs->currentIndex();
 	// 简化映射：跳过 Network
-	static const MetricType order[] = { MetricType::CPU, MetricType::Memory,
-									   MetricType::Disk, MetricType::GPU };
+	static const MetricType order[] = { MetricType::CPU, MetricType::Memory, MetricType::Disk, MetricType::GPU };
 	if (idx < 0 || idx >= 4) return;
 	MetricType m = order[idx];
 
