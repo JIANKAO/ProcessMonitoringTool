@@ -11,8 +11,9 @@ public:
 
 protected:
 	void paintEvent(QPaintEvent*) override;
-
+	void contextMenuEvent(QContextMenuEvent* e) override;
 private:
 	QVector<HistoryStore::Record> m_recs;
 	qint64 m_from = 0, m_to = 0;
+	QVector<QPair<QString, double>> m_rows;   // path + 峰值，setData 时算好
 };

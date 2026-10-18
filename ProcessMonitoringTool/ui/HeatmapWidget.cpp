@@ -7,6 +7,13 @@
 #include <QFileInfo>
 #include <algorithm>
 
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QApplication>
+#include <QClipboard>
+#include <QMessageBox>
+#include <QDesktopServices>
+
 HeatmapWidget::HeatmapWidget(QWidget* parent) : QWidget(parent) {
 	setMinimumHeight(240);
 }
@@ -21,6 +28,21 @@ void HeatmapWidget::setData(const QVector<HistoryStore::Record>& recs, qint64 fr
 	m_recs = recs;
 	m_from = from;
 	m_to = to;
+
+	m_rows.clear();
+	if (!m_recs.isEmpty() && m_to > m_from) {
+		QHash<QString, double> peak;
+		for (const auto& r : m_recs) {
+			double& v = peak[r.path];
+			v = qMax(v, r.value);
+		}
+		m_rows.reserve(peak.size());
+		for (auto it = peak.constBegin(); it != peak.constEnd(); ++it)
+			m_rows.push_back({ it.key(), it.value() });
+		std::sort(m_rows.begin(), m_rows.end(),
+			[](const auto& a, const auto& b) { return a.second > b.second; });
+		if (m_rows.size() > 60) m_rows.resize(60);
+	}
 	update();
 }
 
@@ -29,26 +51,14 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 	p.fillRect(rect(), QColor(24, 26, 32));
 	p.setRenderHint(QPainter::Antialiasing, false);
 
-	if (m_recs.isEmpty() || m_to <= m_from) {
+	if (m_recs.isEmpty() || m_to <= m_from || m_rows.isEmpty()) {
 		p.setPen(QColor(200, 200, 200));
 		p.drawText(rect(), Qt::AlignCenter, Tr::s("stats.empty"));
 		return;
 	}
 
-	// 1. 按 path 聚合总量，取 Top 60 行
-	QHash<QString, double> peak;
-	for (const auto& r : m_recs) {
-		double& v = peak[r.path];
-		v = qMax(v, r.value);
-	}
-	QList<QPair<QString, double>> rows;
-	for (auto it = peak.constBegin(); it != peak.constEnd(); ++it)
-		rows.push_back({ it.key(), it.value() });
-	std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
-	if (rows.size() > 60) rows = rows.mid(0, 60);
-
 	QHash<QString, int> rowIdx;
-	for (int i = 0; i < rows.size(); ++i) rowIdx[rows[i].first] = i;
+	for (int i = 0; i < m_rows.size(); ++i) rowIdx[m_rows[i].first] = i;
 
 	// 2. 绘制区
 	int leftMargin = 180;
@@ -61,7 +71,7 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 
 	// 3. 分桶
 	int cols = plot.width();
-	int rowsCount = rows.size();
+	int rowsCount = m_rows.size();
 	int rowH = qMax(3, plot.height() / qMax(1, rowsCount));
 
 	// 计算全局最大
@@ -111,8 +121,8 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 		// 行标签
 		p.setPen(QColor(230, 230, 230));
 		QFont f = font(); f.setPointSize(8); p.setFont(f);
-		QString name = QFileInfo(rows[ri].first).fileName();
-		if (name.isEmpty()) name = rows[ri].first;
+		QString name = QFileInfo(m_rows[ri].first).fileName();
+		if (name.isEmpty()) name = m_rows[ri].first;
 		name = p.fontMetrics().elidedText(name, Qt::ElideMiddle, leftMargin - 12);
 		p.drawText(QRect(4, y, leftMargin - 8, rowH), Qt::AlignVCenter | Qt::AlignRight, name);
 	}
@@ -128,5 +138,67 @@ void HeatmapWidget::paintEvent(QPaintEvent*) {
 		QString label = QDateTime::fromMSecsSinceEpoch(m_from + span * i / ticks).toString("MM-dd HH:mm");
 		p.drawLine(x, plot.top(), x, plot.bottom() + 3);
 		p.drawText(QRect(x - 40, plot.bottom() + 4, 80, 18), Qt::AlignCenter, label);
+	}
+}
+
+void HeatmapWidget::contextMenuEvent(QContextMenuEvent* e) {
+	if (m_rows.isEmpty() || m_to <= m_from) return;
+
+	// 与 paintEvent 里一致的几何布局
+	const int leftMargin = 180;
+	const int topMargin = 24;
+	const int rightMargin = 12;
+	const int bottomMargin = 24;
+	QRect plot(leftMargin, topMargin,
+		width() - leftMargin - rightMargin,
+		height() - topMargin - bottomMargin);
+
+	if (!plot.contains(e->pos())) return;
+	if (plot.height() < 10 || plot.width() < 10) return;
+
+	const int rowH = qMax(3, plot.height() / qMax(1, m_rows.size()));
+	const int idx = (e->pos().y() - plot.top()) / rowH;
+	if (idx < 0 || idx >= m_rows.size()) return;
+
+	const QString& path = m_rows[idx].first;
+	QString name = QFileInfo(path).fileName();
+	if (name.isEmpty()) name = path;
+
+	QMenu menu;
+
+	// 标题行，灰显
+	QAction* title = menu.addAction(name);
+	title->setEnabled(false);
+	menu.addSeparator();
+
+	// 系统进程的 key 是 "pid:xxx"，不是真实路径，跳过文件相关操作
+	const bool hasRealPath = !path.isEmpty()
+		&& !path.startsWith(QStringLiteral("pid:"));
+
+	QAction* actLocate = nullptr;
+	QAction* actCopyPath = nullptr;
+	if (hasRealPath) {
+		actLocate = menu.addAction(Tr::s("menu.locate"));
+		actCopyPath = menu.addAction(Tr::s("menu.copyPath"));
+	}
+
+	QAction* chosen = menu.exec(e->globalPos());
+	if (!chosen) return;
+
+	if (chosen == actCopyPath) {
+		QApplication::clipboard()->setText(path);
+	}
+	else if (chosen == actLocate) {
+		QFileInfo fi(path);
+		if (fi.exists()) {
+			QDesktopServices::openUrl(QUrl::fromLocalFile(fi.absolutePath()));
+		}
+		else {
+			// 历史记录可能指向已卸载/已删除的程序
+			QMessageBox::information(
+				this, Tr::s("menu.locate"),
+				QStringLiteral("文件已不存在：\n%1\n\n（历史记录不会被自动清理，"
+					"程序可能已卸载或移动）").arg(path));
+		}
 	}
 }
