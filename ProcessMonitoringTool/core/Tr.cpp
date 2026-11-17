@@ -65,6 +65,9 @@ static const QHash<QString, QPair<QString, QString>>& table() {
 		{"restart.alreadyClosed", {"「%1」已关闭，重启失败。","\"%1\" has already exited, restart failed."}},
 		{"set.protected",    {"重启保护名单\n(每行一个进程名)\n(不区分大小写)", "Restart-protected processes\n(one per line)\n(case-insensitive)"}},
 		{"set.protectedTip", {"留空表示不保护任何进程。系统关键进程即使在此名单之外，也可能因系统自身保护而无法终止。", "Empty = no protection. Critical system processes may still fail to terminate due to OS-level protection."}},
+		{"set.autoStartFail", {"开机自启设置失败。\n\n可能是权限不足，或组策略禁用了任务计划。\n详情见程序目录下的 startup.log。", "Failed to set auto-start.\nSee startup.log."}},
+		{"restart.missingFile", {"找不到「%1」的文件：\n%2\n\n可能已被删除或移动。", "File not found for \"%1\":\n%2"}},
+		{"restart.exited", {"「%1」启动后立刻退出了（退出码 %2）。\n可能是旧实例的单实例锁/端口还没释放，或缺少运行库。", "\"%1\" exited right after start (code %2)."}},
 	};
 	return t;
 }

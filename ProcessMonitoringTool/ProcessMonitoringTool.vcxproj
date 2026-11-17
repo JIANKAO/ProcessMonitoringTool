@@ -110,6 +110,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="core\AutoStart.cpp" />
     <ClCompile Include="ui\HeatmapWidget.cpp" />
     <ClCompile Include="ui\MainWindow.cpp" />
     <ClCompile Include="ui\SettingsDialog.cpp" />
@@ -127,6 +128,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="core\AutoStart.h" />
     <ClInclude Include="core\GpuQuery.h" />
     <ClInclude Include="resource.h" />
     <QtMoc Include="ui\HeatmapWidget.h" />

@@ -1,7 +1,8 @@
 ﻿#include "SettingsDialog.h"
 #include "core/Settings.h"
 #include "core/Tr.h"
-
+#include "core/AutoStart.h"
+#include <QMessageBox>
 #include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -79,7 +80,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 	form->addRow(Tr::s("set.scale"), scale);
 
 	QCheckBox* autostart = new QCheckBox;
-	autostart->setChecked(S.autoStart());
+	autostart->setChecked(AutoStart::isEnabled());
 	form->addRow(Tr::s("set.autoStart"), autostart);
 
 	QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
@@ -100,6 +101,9 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
 			S.setOpacity(opacity->value() / 100.0);
 			S.setScale(scale->value() / 100.0);
 			S.setAutoStart(autostart->isChecked());
+			S.setAutoStart(autostart->isChecked());
+			if (autostart->isChecked() && !AutoStart::isEnabled())
+				QMessageBox::warning(this, Tr::s("set.autoStart"), Tr::s("set.autoStartFail"));
 			S.save();
 			accept();
 		});

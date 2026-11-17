@@ -19,6 +19,11 @@
 #include <QFileInfo>
 #include "core/ProcessQuery.h"
 
+#include <QDir>
+#include <QThread>
+#include <QElapsedTimer>
+#include <shellapi.h>
+
 namespace {
 	// 按可执行文件路径收集当前所有运行实例的 pid
 	QVector<quint32> collectPidsByPath(const QString& path) {
@@ -32,6 +37,24 @@ namespace {
 				pids.push_back(r.pid);
 		}
 		return pids;
+	}
+	// 统一成"反斜杠 + 解析后的真实路径"，否则 applicationFilePath() 的正斜杠永远比不中
+	QString canonPath(const QString& p) {
+		if (p.isEmpty()) return QString();
+		const QString c = QFileInfo(p).canonicalFilePath();
+		return c.isEmpty() ? QDir::toNativeSeparators(p) : c;
+	}
+
+	QString winError(DWORD err) {
+		LPWSTR buf = nullptr;
+		QString detail;
+		if (FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+			| FORMAT_MESSAGE_IGNORE_INSERTS,
+			nullptr, err, 0, (LPWSTR)&buf, 0, nullptr) && buf) {
+			detail = QString::fromWCharArray(buf).trimmed();
+			LocalFree(buf);
+		}
+		return detail.isEmpty() ? QString::number(err) : QStringLiteral("%1 (%2)").arg(err).arg(detail);
 	}
 }
 
@@ -114,7 +137,7 @@ bool MainWindow::restartProcess(const RankEntry& e) {
 		return false;
 	}
 
-	// ---- 从设置读保护名单（每次实时读，用户改完立刻生效） ----
+	// ---- 保护名单（每次实时读，改完立刻生效） ----
 	const QStringList protectedList = Settings::inst().protectedList();
 	for (const auto& name : protectedList) {
 		if (!name.isEmpty() && e.name.compare(name, Qt::CaseInsensitive) == 0) {
@@ -124,70 +147,88 @@ bool MainWindow::restartProcess(const RankEntry& e) {
 		}
 	}
 
-	// ---- 自身保护（不可关） ----
-	if (e.path.compare(QCoreApplication::applicationFilePath(),
-		Qt::CaseInsensitive) == 0) {
+	// ---- 自身保护：两边都规范化，否则正/反斜杠不一致会漏判，直接把自己杀掉 ----
+	const QString self = canonPath(QCoreApplication::applicationFilePath());
+	if (!self.isEmpty() && canonPath(e.path).compare(self, Qt::CaseInsensitive) == 0) {
 		QMessageBox::warning(this, Tr::s("restart.fail"), Tr::s("restart.self"));
+		return false;
+	}
+
+	// ---- 文件必须真实存在：杀完才发现 exe 没了，就是"重启不起来 / 找不到文件" ----
+	const QFileInfo fi(e.path);
+	if (!fi.exists() || !fi.isFile()) {
+		QMessageBox::warning(this, Tr::s("restart.fail"),
+			Tr::s("restart.missingFile").arg(e.name, QDir::toNativeSeparators(e.path)));
 		return false;
 	}
 
 	// ---- 按路径收集所有实例 ----
 	QVector<quint32> pids = collectPidsByPath(e.path);
 	if (pids.isEmpty()) {
-		QMessageBox::warning(
-			this, Tr::s("restart.fail"),
+		QMessageBox::warning(this, Tr::s("restart.fail"),
 			Tr::s("restart.alreadyClosed").arg(e.name));
 		return false;
 	}
 
 	// ---- 终止 ----
 	int killed = 0;
+	QString lastErr;
 	for (quint32 pid : pids) {
+		if (pid == GetCurrentProcessId()) continue;
 		HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
-		if (!h) continue;
+		if (!h) { lastErr = winError(GetLastError()); continue; }
 		if (TerminateProcess(h, 0)) {
-			WaitForSingleObject(h, 3000);
-			++killed;
+			if (WaitForSingleObject(h, 5000) == WAIT_OBJECT_0) ++killed;
+			else lastErr = QStringLiteral("等待进程退出超时");
 		}
+		else lastErr = winError(GetLastError());
 		CloseHandle(h);
 	}
 	if (killed == 0) {
 		QMessageBox::warning(this, Tr::s("restart.fail"),
-			Tr::s("restart.cantKill").arg(e.name));
+			Tr::s("restart.cantKill").arg(e.name) + QStringLiteral("\n\n") + lastErr);
 		return false;
 	}
 
-	Sleep(500);   // 释放句柄、端口、单实例锁
+	// ---- 等旧实例彻底消失（端口 / 单实例锁 / 文件锁），最多 8 秒 ----
+	QElapsedTimer clk;
+	clk.start();
+	while (!collectPidsByPath(e.path).isEmpty() && clk.elapsed() < 8000) {
+		QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+		QThread::msleep(100);
+	}
 
 	// ---- 重新启动 ----
-	std::wstring wpath = e.path.toStdWString();
-	std::wstring wdir = QFileInfo(e.path).absolutePath().toStdWString();
-	std::wstring cmd = L"\"" + wpath + L"\"";
+	const QString native = QDir::toNativeSeparators(e.path);
+	const std::wstring wdir = fi.absolutePath().toStdWString();
+	std::wstring cmd = L"\"" + native.toStdWString() + L"\"";
 
 	STARTUPINFOW si = { sizeof(si) };
 	PROCESS_INFORMATION pi = {};
-	BOOL ok = CreateProcessW(
-		wpath.c_str(), cmd.data(),
-		nullptr, nullptr, FALSE, 0, nullptr,
-		wdir.c_str(), &si, &pi);
+	BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE,
+		CREATE_UNICODE_ENVIRONMENT, nullptr, wdir.c_str(), &si, &pi);
 
 	if (!ok) {
-		DWORD err = GetLastError();
-		QString detail;
-		LPWSTR buf = nullptr;
-		if (FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
-			| FORMAT_MESSAGE_IGNORE_INSERTS,
-			nullptr, err, 0, (LPWSTR)&buf, 0, nullptr) && buf) {
-			detail = QString::fromWCharArray(buf).trimmed();
-			LocalFree(buf);
-		}
+		// 740 = 需要提权，用 ShellExecute 兜底一次
+		const DWORD err = GetLastError();
+		const HINSTANCE he = ShellExecuteW(nullptr, L"open", native.toStdWString().c_str(),
+			nullptr, wdir.c_str(), SW_SHOWNORMAL);
+		if (reinterpret_cast<INT_PTR>(he) > 32) return true;
 		QMessageBox::warning(this, Tr::s("restart.fail"),
-			Tr::s("restart.spawnFail").arg(e.name)
-			.arg(detail.isEmpty() ? QString::number(err)
-				: QStringLiteral("%1 (%2)").arg(err).arg(detail)));
+			Tr::s("restart.spawnFail").arg(e.name, winError(err)));
 		return false;
 	}
 	CloseHandle(pi.hThread);
+
+	// ---- 起了一下又立刻退：多半是单实例锁还没释放 ----
+	if (WaitForSingleObject(pi.hProcess, 1500) == WAIT_OBJECT_0) {
+		DWORD ec = 0;
+		GetExitCodeProcess(pi.hProcess, &ec);
+		CloseHandle(pi.hProcess);
+		QMessageBox::warning(this, Tr::s("restart.fail"),
+			Tr::s("restart.exited").arg(e.name).arg(static_cast<uint>(ec)));
+		return false;
+	}
 	CloseHandle(pi.hProcess);
 	return true;
 }

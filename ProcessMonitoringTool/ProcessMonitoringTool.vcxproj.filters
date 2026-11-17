@@ -76,6 +76,9 @@
     <ClCompile Include="ui\MainWindow.cpp">
       <Filter>ui</Filter>
     </ClCompile>
+    <ClCompile Include="core\AutoStart.cpp">
+      <Filter>core</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="core\Metrics.h">
@@ -95,6 +98,9 @@
     </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="core\AutoStart.h">
+      <Filter>core</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

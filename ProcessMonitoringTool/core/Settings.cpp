@@ -2,7 +2,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
-#include <windows.h>
+#include "AutoStart.h"
 
 Settings& Settings::inst() { static Settings s; return s; }
 
@@ -46,48 +46,43 @@ void Settings::setPinned(bool v) { m_qs->setValue("pinned", v); emit changed(); 
 
 void Settings::setAutoStart(bool v) {
 	m_qs->setValue("autostart", v);
-	HKEY k;
-	const wchar_t* RUN = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-	if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN, 0, KEY_SET_VALUE, &k) == ERROR_SUCCESS) {
-		if (v) {
-			QString exe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-			std::wstring w = exe.toStdWString();
-			RegSetValueExW(k, L"SysMonitor", 0, REG_SZ, (const BYTE*)w.c_str(), (DWORD)((w.size() + 1) * sizeof(wchar_t)));
-		}
-		else {
-			RegDeleteValueW(k, L"SysMonitor");
-		}
-		RegCloseKey(k);
+	if (v) {
+		QString err;
+		if (!AutoStart::enable(&err))
+			AutoStart::log(QStringLiteral("ERROR 开启开机自启失败: ") + err);
+	}
+	else {
+		AutoStart::disable();
 	}
 	emit changed();
 }
 
 // 默认保护名单：仅在用户从未修改过时生效
 static QStringList defaultProtectedList() {
-    return {
-        QStringLiteral("System"),
-        QStringLiteral("Registry"),
-        QStringLiteral("Memory Compression"),
-        QStringLiteral("csrss.exe"),
-        QStringLiteral("wininit.exe"),
-        QStringLiteral("winlogon.exe"),
-        QStringLiteral("services.exe"),
-        QStringLiteral("lsass.exe"),
-        QStringLiteral("smss.exe"),
-        QStringLiteral("svchost.exe"),
-        QStringLiteral("dwm.exe"),
-        QStringLiteral("fontdrvhost.exe"),
-    };
+	return {
+		QStringLiteral("System"),
+		QStringLiteral("Registry"),
+		QStringLiteral("Memory Compression"),
+		QStringLiteral("csrss.exe"),
+		QStringLiteral("wininit.exe"),
+		QStringLiteral("winlogon.exe"),
+		QStringLiteral("services.exe"),
+		QStringLiteral("lsass.exe"),
+		QStringLiteral("smss.exe"),
+		QStringLiteral("svchost.exe"),
+		QStringLiteral("dwm.exe"),
+		QStringLiteral("fontdrvhost.exe"),
+	};
 }
 
 QStringList Settings::protectedList() const {
-    // 用户没动过 → 用默认；动过（哪怕清空）→ 用用户的值
-    if (!m_qs->contains("protected"))
-        return defaultProtectedList();
-    return m_qs->value("protected").toStringList();
+	// 用户没动过 → 用默认；动过（哪怕清空）→ 用用户的值
+	if (!m_qs->contains("protected"))
+		return defaultProtectedList();
+	return m_qs->value("protected").toStringList();
 }
 
 void Settings::setProtectedList(const QStringList& v) {
-    m_qs->setValue("protected", v);
-    emit changed();
+	m_qs->setValue("protected", v);
+	emit changed();
 }
